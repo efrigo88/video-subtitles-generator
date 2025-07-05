@@ -177,7 +177,6 @@ video-subtitles-generator/
 ├── Dockerfile           # Docker configuration
 ├── docker-compose.yml   # Docker Compose configuration
 ├── .dockerignore        # Docker ignore file
-├── Makefile            # Convenience commands for Docker
 ├── pyproject.toml       # Project dependencies and configuration
 ├── uv.lock             # Locked dependency versions
 └── README.md           # This file
