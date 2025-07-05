@@ -9,7 +9,6 @@ A Python tool for automatically generating SRT subtitle files from video files u
 - 🗣️ **Speech Recognition**: Uses OpenAI's Whisper model for accurate speech-to-text conversion
 - 📝 **SRT Format**: Generates properly formatted SRT subtitle files
 - 🚀 **Performance**: Optimized for speed with minimal verbose output
-- 🍎 **macOS Optimized**: Works great on Apple Silicon Macs (with CPU fallback for compatibility)
 
 ## Requirements
 
