@@ -55,7 +55,7 @@ def transcribe_audio(
         str(audio_path),
         language=language,
         verbose=False,
-    )  # specify language or use None for auto-detect
+    )
     return result["segments"]
 
 
