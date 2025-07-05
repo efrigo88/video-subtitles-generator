@@ -6,6 +6,7 @@ video files.
 import sys
 from pathlib import Path
 
+from .constants import LANGUAGE_DESCRIPTION
 from .helpers import extract_audio, transcribe_audio, write_srt
 
 
@@ -13,7 +14,9 @@ def main():
     """Main function to execute the subtitle generation process."""
     if len(sys.argv) < 2:
         print("Usage: python -m src.main <video_file> [language]")
-        print("Language codes: en, es, fr, de, it, pt, ru, ja, ko, zh, etc.")
+        print("Language codes:")
+        for code, description in LANGUAGE_DESCRIPTION.items():
+            print(f"  {code}: {description}")
         print("Example: python -m src.main video.mp4 es")
         sys.exit(1)
 
@@ -35,6 +38,13 @@ def main():
 
     # Get language from command line argument (default to English)
     language = sys.argv[2] if len(sys.argv) > 2 else "en"
+
+    if language not in LANGUAGE_DESCRIPTION:
+        print(f"Error: Unsupported language: {language}")
+        print("Supported languages:")
+        for code, description in LANGUAGE_DESCRIPTION.items():
+            print(f"  {code}: {description}")
+        sys.exit(1)
 
     audio_path = video_path.with_suffix(".wav")
     srt_path = video_path.with_suffix(".srt")

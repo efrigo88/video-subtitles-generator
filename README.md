@@ -22,7 +22,7 @@ A Python tool for automatically generating SRT subtitle files from video files u
 1. **Clone the repository**:
    ```bash
    git clone <repository-url>
-   cd subtitle-generator-lab
+   cd video-subtitles-generator
    ```
 
 2. **Install dependencies** (using uv):
@@ -65,8 +65,14 @@ python -m src.main "/path/to/your/video.mp4" fr
 # German
 python -m src.main "/path/to/your/video.mp4" de
 
-# Japanese
-python -m src.main "/path/to/your/video.mp4" ja
+# Italian
+python -m src.main "/path/to/your/video.mp4" it
+
+# Portuguese
+python -m src.main "/path/to/your/video.mp4" pt
+
+# Russian
+python -m src.main "/path/to/your/video.mp4" ru
 
 # Chinese
 python -m src.main "/path/to/your/video.mp4" zh
@@ -94,7 +100,7 @@ The script generates an SRT file with the same name as your video file:
 
 ### Language Support
 
-Whisper supports many languages. Common language codes:
+Currently supported languages:
 - `en` - English (default)
 - `es` - Spanish
 - `fr` - French
@@ -102,11 +108,9 @@ Whisper supports many languages. Common language codes:
 - `it` - Italian
 - `pt` - Portuguese
 - `ru` - Russian
-- `ja` - Japanese
-- `ko` - Korean
 - `zh` - Chinese
 
-For a complete list, see [Whisper's supported languages](https://github.com/openai/whisper/blob/main/whisper/tokenizer.py).
+Note: While Whisper supports many more languages, these are the ones currently configured in this project. For a complete list of Whisper's supported languages, see [Whisper's supported languages](https://github.com/openai/whisper/blob/main/whisper/tokenizer.py).
 
 ### Model Size
 
@@ -131,7 +135,7 @@ segments = transcribe_audio(audio_path, model_size="medium")  # Options: tiny, b
 ## Project Structure
 
 ```
-subtitle-generator-lab/
+video-subtitles-generator/
 ├── src/
 │   ├── __init__.py
 │   ├── main.py          # Main script entry point

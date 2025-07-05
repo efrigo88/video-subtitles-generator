@@ -12,6 +12,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import whisper
+from .constants import LANGUAGE_DESCRIPTION
 
 
 def format_timestamp(seconds: float) -> str:
@@ -50,7 +51,7 @@ def transcribe_audio(
     device = "cpu"
     print(f"Loading {model_size} model...")
     model = whisper.load_model(model_size, device=device)
-    print(f"Transcribing audio in {language} "
+    print(f"Transcribing audio in {LANGUAGE_DESCRIPTION[language]} "
           f"(this may take a while)...")
     result = model.transcribe(
         str(audio_path),
