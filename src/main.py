@@ -1,5 +1,6 @@
 """
-Subtitle Generator Lab - A tool for generating SRT subtitles from video files.
+Video Subtitles Generator - A tool for generating SRT subtitles from
+video files.
 """
 
 import sys

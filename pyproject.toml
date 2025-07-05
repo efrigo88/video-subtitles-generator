@@ -1,7 +1,7 @@
 [project]
-name = "subtitle-generator-lab"
+name = "video-subtitle-generator"
 version = "0.1.0"
-description = "Subtitle Generator Lab"
+description = "Video Subtitle Generator"
 requires-python = ">=3.9,<3.13"
 dependencies = [
     "openai-whisper",

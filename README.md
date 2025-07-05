@@ -1,4 +1,4 @@
-# Subtitle Generator Lab
+# Video Subtitles Generator
 
 A Python tool for automatically generating SRT subtitle files from video files using OpenAI's Whisper speech recognition model.
 
