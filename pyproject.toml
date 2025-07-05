@@ -1,0 +1,15 @@
+[project]
+name = "subtitle-generator-lab"
+version = "0.1.0"
+description = "Subtitle Generator Lab"
+requires-python = ">=3.9,<3.13"
+dependencies = [
+    "openai-whisper",
+    "torch",
+    "torchaudio",
+    "torchvision",
+    "ffmpeg-python",
+]
+
+[tool.uv]
+dev-dependencies = ["pytest", "black", "flake8", "mypy"]
