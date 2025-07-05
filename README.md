@@ -19,6 +19,36 @@ A Python tool for automatically generating SRT subtitle files from video files u
 
 ## Installation
 
+### Option 1: Docker (Recommended for Easy Setup)
+
+The easiest way to run this application is using Docker, which handles all dependencies automatically.
+
+1. **Clone the repository**:
+   ```bash
+   git clone <repository-url>
+   cd video-subtitles-generator
+   ```
+
+2. **Run with Docker**:
+   ```bash
+   # Quick start with convenience script
+   ./scripts/docker-run.sh video.mp4
+   
+   # For different languages
+   ./scripts/docker-run.sh video.mp4 es  # Spanish
+   ./scripts/docker-run.sh video.mp4 fr  # French
+   ```
+
+The script will automatically:
+- Check if Docker and Docker Compose are installed
+- Build the Docker image if needed
+- Copy your video to the working directory
+- Run the subtitle generation
+- Copy the SRT file back to your original video location
+- Clean up temporary files
+
+### Option 2: Local Installation
+
 1. **Clone the repository**:
    ```bash
    git clone <repository-url>
@@ -139,7 +169,15 @@ video-subtitles-generator/
 ├── src/
 │   ├── __init__.py
 │   ├── main.py          # Main script entry point
-│   └── helpers.py       # Helper functions for audio extraction and transcription
+│   ├── helpers.py       # Helper functions for audio extraction and transcription
+│   └── constants.py     # Language constants
+├── scripts/
+│   └── docker-run.sh    # Docker convenience script
+├── videos/              # Mounted volume for Docker (created automatically)
+├── Dockerfile           # Docker configuration
+├── docker-compose.yml   # Docker Compose configuration
+├── .dockerignore        # Docker ignore file
+├── Makefile            # Convenience commands for Docker
 ├── pyproject.toml       # Project dependencies and configuration
 ├── uv.lock             # Locked dependency versions
 └── README.md           # This file
@@ -183,6 +221,13 @@ ffmpeg -version
 
 This project is open source. See the LICENSE file for details.
 
+### Troubleshooting
+
+- **"Docker is not installed"**: Install Docker Desktop or Docker Engine
+- **"Docker is not running"**: Start Docker Desktop or Docker service
+- **"Permission denied"**: Run `chmod +x scripts/docker-run.sh`
+- **"No space left"**: Run `docker system prune -a` to clean up
+
 ## Contributing
 
-Contributions are welcome! Please feel free to submit a Pull Request. 
+Contributions are welcome! Please feel free to submit a Pull Request.

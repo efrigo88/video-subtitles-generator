@@ -1,0 +1,8 @@
+services:
+  video-subtitle-generator:
+    build: .
+    container_name: video-subtitle-generator
+    volumes:
+      - ./videos:/app/videos
+    command: ["python", "-m", "src.main", "--help"]
+    restart: "no"

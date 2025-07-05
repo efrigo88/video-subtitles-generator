@@ -6,8 +6,8 @@ video files.
 import sys
 from pathlib import Path
 
-from .constants import LANGUAGE_DESCRIPTION
-from .helpers import extract_audio, transcribe_audio, write_srt
+from src.constants import LANGUAGE_DESCRIPTION
+from src.helpers import extract_audio, transcribe_audio, write_srt
 
 
 def main():
@@ -20,15 +20,32 @@ def main():
         print("Example: python -m src.main video.mp4 es")
         sys.exit(1)
 
-    video_path = Path(sys.argv[1])
+    video_filename = sys.argv[1]
+
+    # Try to find the video file in multiple locations
+    possible_paths = [
+        Path(video_filename),  # Current directory (for local runs)
+        Path("/app/videos") / video_filename,  # Docker mounted volume
+        Path.cwd() / video_filename,  # Current working directory
+    ]
+
+    video_path = None
+    for path in possible_paths:
+        if path.exists():
+            video_path = path
+            break
 
     # Debug information
-    print(f"Checking file: {video_path}")
-    print(f"File exists: {video_path.exists()}")
-    print(f"File suffix: {video_path.suffix.lower()}")
+    print(f"Checking file: {video_filename}")
+    print(f"Found at: {video_path}")
+    print(f"File exists: {video_path is not None}")
+    print(f"File suffix: {Path(video_filename).suffix.lower()}")
 
-    if not video_path.exists():
-        print(f"Error: File does not exist: {video_path}")
+    if video_path is None:
+        print(f"Error: File does not exist: {video_filename}")
+        print("Searched in:")
+        for path in possible_paths:
+            print(f"  - {path}")
         sys.exit(1)
 
     if video_path.suffix.lower() not in [".mp4", ".mkv"]:

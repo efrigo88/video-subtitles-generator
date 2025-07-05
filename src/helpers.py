@@ -12,7 +12,7 @@ from datetime import timedelta
 from pathlib import Path
 
 import whisper
-from .constants import LANGUAGE_DESCRIPTION
+from src.constants import LANGUAGE_DESCRIPTION
 
 
 def format_timestamp(seconds: float) -> str:
