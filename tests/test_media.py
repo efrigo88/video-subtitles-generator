@@ -3,6 +3,7 @@
 """Regression coverage for media selection and alignment configuration."""
 
 import array
+import json
 import shutil
 import subprocess
 import sys
@@ -67,6 +68,46 @@ def test_whisper_requests_word_alignment_and_silence_protection(
     assert captured["task"] == "transcribe"
     assert captured["fp16"] is False
     assert captured["hallucination_silence_threshold"] == 2
+
+
+def test_whisper_nonfinite_diagnostics_become_null_for_checkpointing(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    """Keep strict JSON checkpoints writable when the aligner emits NaN values."""
+    nan = float("nan")
+
+    def transcribe(path: str, **kwargs: Any) -> JsonDict:
+        """Return a segment whose diagnostics and word timing contain NaN."""
+        return {
+            "segments": [
+                {
+                    "start": 1.0,
+                    "end": 2.0,
+                    "text": "Hi",
+                    "avg_logprob": nan,
+                    "words": [
+                        {"word": "Hi", "start": nan, "end": 1.5, "probability": nan}
+                    ],
+                }
+            ]
+        }
+
+    monkeypatch.setitem(
+        sys.modules,
+        "whisper",
+        types.SimpleNamespace(
+            load_model=lambda *a, **kw: types.SimpleNamespace(transcribe=transcribe)
+        ),
+    )
+    segments = transcribe_audio(tmp_path / "audio.wav")
+    assert segments[0]["avg_logprob"] is None
+    assert segments[0]["words"][0] == {
+        "word": "Hi",
+        "start": None,
+        "end": 1.5,
+        "probability": None,
+    }
+    json.dumps(segments, allow_nan=False)
 
 
 @pytest.mark.skipif(

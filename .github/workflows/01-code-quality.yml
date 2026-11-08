@@ -21,6 +21,8 @@ jobs:
         with:
           python-version: "3.12"
           enable-cache: true
+          # The Python 3.12 test job resolves the same key; a suffix avoids a save race.
+          cache-suffix: quality
       - name: Install validation dependencies
         run: uv sync --locked --only-group dev
       - name: Run hygiene, formatting, typing, security, and documentation checks

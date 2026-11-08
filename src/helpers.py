@@ -274,6 +274,28 @@ def extract_audio(video_path: Path, audio_path: Path, stream_index: int) -> None
     )
 
 
+def _null_nonfinite(value: object) -> object:
+    """Replace NaN and infinite floats in nested inference output with None.
+
+    Parameters
+    ----------
+    value : object
+        Whisper output fragment: a mapping, list, or scalar.
+
+    Returns
+    -------
+    object
+        Structurally identical data that strict JSON serialization accepts.
+    """
+    if isinstance(value, float):
+        return value if math.isfinite(value) else None
+    if isinstance(value, dict):
+        return {key: _null_nonfinite(item) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_null_nonfinite(item) for item in value]
+    return value
+
+
 def transcribe_audio(
     audio_path: Path,
     model_size: str = DEFAULT_MODEL,
@@ -299,7 +321,8 @@ def transcribe_audio(
     Returns
     -------
     list[dict[str, Any]]
-        Whisper segments including aligned words and confidence diagnostics.
+        Whisper segments including aligned words and confidence diagnostics;
+        nonfinite values such as an empty-slice word probability become None.
     """
     print(f"Loading Whisper {model_size} on {device}...", file=sys.stderr)
     options: JsonDict = dict(
@@ -324,7 +347,7 @@ def transcribe_audio(
                 path_or_hf_repo=MLX_MODEL_REPOSITORIES[model_size],
                 **options,
             )
-            return cast(list[JsonDict], result["segments"])
+            return cast(list[JsonDict], _null_nonfinite(result["segments"]))
         finally:
             # MLX caches its model globally; translation needs that memory back.
             ModelHolder.model = None
@@ -340,7 +363,7 @@ def transcribe_audio(
             fp16=device == "cuda",
             **options,
         )
-        return cast(list[JsonDict], result["segments"])
+        return cast(list[JsonDict], _null_nonfinite(result["segments"]))
     finally:
         del model
         gc.collect()

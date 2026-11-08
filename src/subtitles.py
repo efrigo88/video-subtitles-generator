@@ -9,7 +9,7 @@ import os
 import tempfile
 import textwrap
 from pathlib import Path
-from typing import Optional
+from typing import Optional, cast
 
 from src.constants import (
     ATOMIC_TEMP_PREFIX,
@@ -253,8 +253,15 @@ def build_cues(
                 raise ValueError(f"Segment {index} has a non-string aligned word.")
             if not text.strip():
                 continue
+            raw_start, raw_end = word.get("start"), word.get("end")
+            if not all(
+                isinstance(value, (int, float)) and math.isfinite(value)
+                for value in (raw_start, raw_end)
+            ):
+                # Omitting the text routes the segment to its own source interval.
+                continue
             aligned_parts.append(text)
-            start, end = float(word["start"]), float(word["end"])
+            start, end = float(cast(float, raw_start)), float(cast(float, raw_end))
             format_timestamp(start)
             format_timestamp(end)
             if end < start or start < previous_start:

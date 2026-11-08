@@ -138,6 +138,26 @@ def test_incomplete_word_alignment_preserves_the_full_source_text() -> None:
     assert any("used segment timing" in warning for warning in warnings)
 
 
+@pytest.mark.parametrize("start", [None, float("nan")])
+def test_word_without_finite_timing_uses_segment_time(start: object) -> None:
+    """Treat a word with missing or nonfinite timing as unaligned rather than failing."""
+    cues, warnings = build_cues(
+        [
+            {
+                "start": 1.12,
+                "end": 2.84,
+                "text": "Hello world",
+                "words": [
+                    {"start": 1.12, "end": 1.84, "word": "Hello"},
+                    {"start": start, "end": 2.5, "word": " world"},
+                ],
+            }
+        ]
+    )
+    assert cues == [{"start": 1.12, "end": 2.84, "text": "Hello world"}]
+    assert any("used segment timing" in warning for warning in warnings)
+
+
 def test_identical_start_times_merge_cues_without_losing_text() -> None:
     """Keep both texts when model segments share a start boundary."""
     cues, warnings = build_cues(
