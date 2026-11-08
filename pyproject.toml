@@ -4,12 +4,43 @@ version = "0.1.0"
 description = "Video Subtitle Generator"
 requires-python = ">=3.9,<3.13"
 dependencies = [
-    "openai-whisper",
+    "openai-whisper==20250625",
     "torch",
-    "torchaudio",
-    "torchvision",
-    "ffmpeg-python",
+    "transformers>=4.48,<5",
+    "sentencepiece>=0.2,<0.3",
+    "sacremoses>=0.1,<0.2",
 ]
 
-[tool.uv]
-dev-dependencies = ["pytest", "black", "flake8", "mypy"]
+[project.optional-dependencies]
+apple = ["mlx-whisper>=0.4,<0.5; sys_platform == 'darwin' and platform_machine == 'arm64'"]
+
+[dependency-groups]
+dev = ["pytest", "black", "mypy", "ruff", "pre-commit", "bandit", "yamllint"]
+
+[tool.mypy]
+strict = true
+files = ["src", "scripts"]
+
+[[tool.mypy.overrides]]
+module = ["whisper.*", "mlx_whisper.*", "torch.*", "transformers.*"]
+follow_imports = "skip"
+ignore_missing_imports = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+
+[tool.black]
+target-version = ["py39"]
+
+[tool.ruff]
+target-version = "py39"
+
+[tool.ruff.lint]
+select = [
+    "E4", "E7", "E9", "F",
+    "D100", "D101", "D102", "D103", "D104", "D105", "D106", "D107",
+    "ANN001", "ANN002", "ANN003", "ANN201", "ANN202", "ANN204", "ANN205", "ANN206",
+]
+
+[tool.ruff.lint.pydocstyle]
+convention = "numpy"

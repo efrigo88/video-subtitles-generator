@@ -190,3 +190,11 @@ nohup.out
 
 scraper_cache/
 videos/
+
+# Local media and generated subtitle artifacts
+*.mp4
+*.mkv
+*.wav
+*.srt
+*.transcript.json
+*.subtitles.json
