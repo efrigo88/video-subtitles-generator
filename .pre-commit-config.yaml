@@ -1,0 +1,74 @@
+---
+minimum_pre_commit_version: "3.2.0"
+default_install_hook_types: [pre-commit, pre-push]
+default_stages: [pre-commit]
+
+repos:
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v5.0.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+      - id: check-json
+      - id: check-added-large-files
+      - id: check-ast
+      - id: check-toml
+      - id: check-shebang-scripts-are-executable
+      - id: check-merge-conflict
+      - id: check-case-conflict
+      - id: check-docstring-first
+      - id: detect-private-key
+      - id: forbid-submodules
+      - id: mixed-line-ending
+        args: [--fix=lf]
+
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.44.0
+    hooks:
+      - id: markdownlint
+        args: [--config, .markdownlint.yml]
+
+  - repo: local
+    hooks:
+      - id: black
+        name: black
+        entry: uv run --no-sync black
+        language: system
+        types: [python]
+      - id: ruff
+        name: ruff
+        entry: uv run --no-sync ruff check
+        language: system
+        types: [python]
+      - id: aboutme-headers
+        name: aboutme headers
+        entry: uv run --no-sync python -m scripts.check_aboutme
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: mypy
+        name: strict mypy
+        entry: uv run --no-sync mypy
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: bandit
+        name: bandit
+        entry: uv run --no-sync bandit -r src scripts -ll -c pyproject.toml
+        language: system
+        types: [python]
+        pass_filenames: false
+      - id: yamllint
+        name: yamllint
+        entry: uv run --no-sync yamllint -c yamllint.yml
+        language: system
+        types: [yaml]
+      - id: pytest
+        name: pytest
+        entry: uv run --no-sync python -m pytest -q
+        language: system
+        types: [python]
+        pass_filenames: false
+        stages: [pre-push]

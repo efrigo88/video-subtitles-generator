@@ -1,0 +1,23 @@
+---
+extends: default
+
+ignore: |
+  .venv/
+  .ruff_cache/
+  .mypy_cache/
+  .pytest_cache/
+  build/
+  dist/
+
+rules:
+  line-length:
+    max: 160
+  truthy:
+    allowed-values: ["true", "false", "on", "off"]
+    check-keys: false
+  comments:
+    min-spaces-from-content: 1
+  indentation:
+    spaces: 2
+    indent-sequences: consistent
+    check-multi-line-strings: false

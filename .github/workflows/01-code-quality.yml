@@ -1,0 +1,27 @@
+---
+name: Code Quality
+
+on:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: code-quality-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  quality:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v7
+        with:
+          python-version: "3.12"
+          enable-cache: true
+      - name: Install validation dependencies
+        run: uv sync --locked --only-group dev
+      - name: Run hygiene, formatting, typing, security, and documentation checks
+        run: uv run --no-sync pre-commit run --all-files --show-diff-on-failure
