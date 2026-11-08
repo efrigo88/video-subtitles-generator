@@ -153,6 +153,9 @@ dmypy.json
 # pytype static type analyzer
 .pytype/
 
+# Ruff linter cache
+.ruff_cache/
+
 # Cython debug symbols
 cython_debug/
 
