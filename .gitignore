@@ -198,3 +198,5 @@ videos/
 *.srt
 *.transcript.json
 *.subtitles.json
+transcript.json
+report.json

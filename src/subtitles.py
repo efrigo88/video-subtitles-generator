@@ -2,6 +2,7 @@
 # ABOUTME: Preserves millisecond boundaries and publishes complete files without accidental replacement.
 """Build readable cues from aligned words and write validated SRT files."""
 
+import errno
 import json
 import math
 import os
@@ -12,6 +13,7 @@ from typing import Optional
 
 from src.constants import (
     ATOMIC_TEMP_PREFIX,
+    HARD_LINK_UNSUPPORTED_ERRORS,
     LONG_CUE_WARNING_SECONDS,
     MAX_CUE_CHARACTERS,
     MAX_CUE_DURATION,
@@ -20,6 +22,7 @@ from src.constants import (
     MEDIA_DURATION_TOLERANCE,
     MILLISECONDS_PER_SECOND,
     MINUTES_PER_HOUR,
+    OUTPUT_FILE_PERMISSIONS,
     READING_SPEED_WARNING,
     SECONDS_PER_MINUTE,
     SRT_LINE_WIDTH,
@@ -57,8 +60,45 @@ def format_timestamp(seconds: float) -> str:
     return f"{hours:02}:{minutes:02}:{whole_seconds:02},{milliseconds:03}"
 
 
+def _write_exclusive(path: Path, content: str) -> None:
+    """Create a destination exclusively and clean up its owned inode on failure.
+
+    Parameters
+    ----------
+    path : Path
+        Unused destination on a filesystem without hard-link publication.
+    content : str
+        Complete UTF-8 content whose short writes are retried until finished.
+    """
+    descriptor = os.open(
+        path, os.O_WRONLY | os.O_CREAT | os.O_EXCL, OUTPUT_FILE_PERMISSIONS
+    )
+    try:
+        owned = os.fstat(descriptor)
+        try:
+            remaining = memoryview(content.encode("utf-8"))
+            while remaining:
+                written = os.write(descriptor, remaining)
+                if written <= 0:
+                    raise OSError(errno.EIO, "Unable to complete subtitle output")
+                remaining = remaining[written:]
+        except BaseException:
+            try:
+                current = path.lstat()
+            except FileNotFoundError:
+                current = None
+            if current is not None and (current.st_dev, current.st_ino) == (
+                owned.st_dev,
+                owned.st_ino,
+            ):
+                path.unlink()
+            raise
+    finally:
+        os.close(descriptor)
+
+
 def atomic_write(path: Path, content: str, overwrite: bool = False) -> None:
-    """Publish a complete UTF-8 file with atomic replacement or no-clobber creation.
+    """Publish UTF-8 output without clobbering, atomically where supported.
 
     Parameters
     ----------
@@ -68,6 +108,15 @@ def atomic_write(path: Path, content: str, overwrite: bool = False) -> None:
         Entire file contents.
     overwrite : bool
         Whether replacing an existing destination is explicitly authorized.
+
+    Notes
+    -----
+    Hard-link publication and authorized replacement expose complete files
+    atomically. Filesystems without hard links use exclusive destination
+    creation: existing files and symlinks are still protected, but readers can
+    observe bytes while they are written. Handled failures remove a partial
+    destination only when its device and inode still match the owned file.
+    Process termination or power loss can leave a partial fallback output.
     """
     path.parent.mkdir(parents=True, exist_ok=True)
     descriptor, temporary = tempfile.mkstemp(prefix=ATOMIC_TEMP_PREFIX, dir=path.parent)
@@ -77,7 +126,12 @@ def atomic_write(path: Path, content: str, overwrite: bool = False) -> None:
         if overwrite:
             os.replace(temporary, path)
         else:
-            os.link(temporary, path)
+            try:
+                os.link(temporary, path)
+            except OSError as exc:
+                if exc.errno not in HARD_LINK_UNSUPPORTED_ERRORS:
+                    raise
+                _write_exclusive(path, content)
     finally:
         if os.path.exists(temporary):
             os.unlink(temporary)

@@ -17,7 +17,12 @@ Pipeline = tuple[Path, list[Path]]
 @pytest.fixture
 def pipeline(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> Pipeline:
     """Provide a video and record temporary paths through a model-free pipeline."""
-    video = tmp_path / "movie with spaces.mp4"
+    media_directory = tmp_path / "media"
+    media_directory.mkdir()
+    video = media_directory / "movie with spaces.mp4"
+    monkeypatch.setattr(
+        cli, "DEFAULT_CACHE_DIRECTORY", tmp_path / "cache", raising=False
+    )
     video.write_bytes(b"video fixture")
     probe = {
         "format": {"duration": "10"},
@@ -151,7 +156,7 @@ def test_translation_failure_keeps_reusable_english_and_transcript(
                 "--subtitle-languages",
                 "es",
                 "--reuse-transcript",
-                str(video.with_suffix(".en.transcript.json")),
+                str(Path(result["completed_files"][0])),
                 "--json",
             ]
         )
@@ -167,14 +172,14 @@ def test_reject_transcript_from_modified_video(
     """Prevent cached speech from being applied to a different input movie."""
     video, calls = pipeline
     assert cli.main([str(video), "--json"]) == 0
-    capsys.readouterr()
+    checkpoint_path = Path(json.loads(capsys.readouterr().out)["transcript"])
     video.write_bytes(b"different movie")
     assert (
         cli.main(
             [
                 str(video),
                 "--reuse-transcript",
-                str(video.with_suffix(".en.transcript.json")),
+                str(checkpoint_path),
                 "--overwrite",
                 "--json",
             ]
@@ -191,8 +196,7 @@ def test_malformed_checkpoint_returns_structured_failure(
     """Reject malformed reusable segments without rerunning recognition."""
     video, calls = pipeline
     assert cli.main([str(video), "--json"]) == 0
-    capsys.readouterr()
-    checkpoint_path = video.with_suffix(".en.transcript.json")
+    checkpoint_path = Path(json.loads(capsys.readouterr().out)["transcript"])
     checkpoint = json.loads(checkpoint_path.read_text())
     checkpoint["segments"] = ["not a segment object"]
     checkpoint_path.write_text(json.dumps(checkpoint))
@@ -247,16 +251,18 @@ def test_invalid_destination_fails_before_inference(
     assert obstacle.read_text() == "preserve me"
 
 
-def test_oversized_output_basename_fails_before_inference(
+def test_long_input_basename_uses_short_cache_filenames(
     pipeline: Pipeline, capsys: pytest.CaptureFixture[str]
 ) -> None:
-    """Reject an input whose derived transcript name cannot be published."""
+    """Keep valid long media names usable by hashing metadata cache paths."""
     video, calls = pipeline
     long_video = video.with_name("m" * 240 + ".mp4")
     video.rename(long_video)
-    assert cli.main([str(long_video), "--json"]) == 1
-    assert json.loads(capsys.readouterr().out)["status"] == "error"
-    assert not calls
+    assert cli.main([str(long_video), "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert result["status"] == "ok"
+    assert len(Path(result["transcript"]).name) < 40
+    assert len(calls) == 1
 
 
 @pytest.mark.parametrize("words", [[None], ["bad"], "bad", {"word": "Hello"}])
@@ -266,8 +272,7 @@ def test_malformed_nested_words_return_structured_failure(
     """Validate nested alignment data rather than leaking an attribute traceback."""
     video, calls = pipeline
     assert cli.main([str(video), "--json"]) == 0
-    capsys.readouterr()
-    path = video.with_suffix(".en.transcript.json")
+    path = Path(json.loads(capsys.readouterr().out)["transcript"])
     checkpoint = json.loads(path.read_text())
     checkpoint["segments"][0]["words"] = words
     path.write_text(json.dumps(checkpoint))
@@ -298,3 +303,233 @@ def test_help_does_not_attempt_transcription(
         cli.main(["--help"])
     assert exc.value.code == 0
     assert "--source-language" in capsys.readouterr().out
+
+
+def test_movie_folder_receives_only_two_subtitles(
+    pipeline: Pipeline, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Keep all transcripts and reports outside the media directory."""
+    video, calls = pipeline
+    assert cli.main([str(video), "--json"]) == 0
+    result = json.loads(capsys.readouterr().out)
+    assert set(video.parent.iterdir()) == {
+        video,
+        video.with_suffix(".en.srt"),
+        video.with_suffix(".es.srt"),
+    }
+    assert not Path(result["transcript"]).is_relative_to(video.parent)
+    assert not Path(result["report"]).is_relative_to(video.parent)
+    assert len(calls) == 1
+
+
+def test_cached_transcript_is_reused_across_output_directories(
+    pipeline: Pipeline, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Avoid repeating speech recognition when writing the same movie elsewhere."""
+    video, calls = pipeline
+    assert cli.main([str(video), "--json"]) == 0
+    first = json.loads(capsys.readouterr().out)
+    destination = tmp_path / "subtitles"
+    assert cli.main([str(video), "--output-dir", str(destination), "--json"]) == 0
+    second = json.loads(capsys.readouterr().out)
+    assert first["transcript"] == second["transcript"]
+    assert len(calls) == 1
+    assert set(destination.iterdir()) == {
+        destination / video.with_suffix(".en.srt").name,
+        destination / video.with_suffix(".es.srt").name,
+    }
+
+
+def test_refresh_transcript_runs_recognition_again(
+    pipeline: Pipeline, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Allow intentional cache refresh without weakening SRT overwrite protection."""
+    video, calls = pipeline
+    assert cli.main([str(video), "--json"]) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert (
+        cli.main(
+            [
+                str(video),
+                "--output-dir",
+                str(tmp_path / "fresh"),
+                "--refresh-transcript",
+                "--json",
+            ]
+        )
+        == 0
+    )
+    second = json.loads(capsys.readouterr().out)
+    assert first["transcript"] == second["transcript"]
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize(
+    "options",
+    [
+        ["--model", "small"],
+        ["--source-language", "es"],
+        ["--condition-on-previous-text"],
+    ],
+)
+def test_cache_identity_includes_transcription_settings(
+    pipeline: Pipeline,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+    options: list[str],
+) -> None:
+    """Invalidate cached speech when its model, language, or decoding context changes."""
+    video, calls = pipeline
+    assert cli.main([str(video), "--json"]) == 0
+    first = json.loads(capsys.readouterr().out)
+    assert (
+        cli.main(
+            [str(video), "--output-dir", str(tmp_path / "changed"), *options, "--json"]
+        )
+        == 0
+    )
+    second = json.loads(capsys.readouterr().out)
+    assert first["transcript"] != second["transcript"]
+    assert len(calls) == 2
+
+
+@pytest.mark.parametrize("relative", [".", "cache/inside-movie-folder"])
+def test_cache_cannot_pollute_movie_directory(
+    pipeline: Pipeline, capsys: pytest.CaptureFixture[str], relative: str
+) -> None:
+    """Reject cache locations equal to or inside the movie directory."""
+    video, calls = pipeline
+    cache = video.parent / relative
+    assert cli.main([str(video), "--cache-dir", str(cache), "--json"]) == 1
+    result = json.loads(capsys.readouterr().out)
+    assert "cache" in result["error"].lower()
+    assert not calls
+    assert set(video.parent.iterdir()) == {video}
+
+
+def test_list_audio_does_not_create_cache(
+    pipeline: Pipeline, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Keep metadata inspection read-only without creating application cache files."""
+    video, calls = pipeline
+    assert cli.main([str(video), "--list-audio", "--json"]) == 0
+    assert json.loads(capsys.readouterr().out)["audio_streams"]
+    assert not cli.DEFAULT_CACHE_DIRECTORY.exists()
+    assert not calls
+
+
+def test_corrupted_automatic_cache_returns_structured_error(
+    pipeline: Pipeline, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Preserve a damaged checkpoint for inspection without silently rerunning ASR."""
+    video, calls = pipeline
+    assert cli.main([str(video), "--json"]) == 0
+    transcript = Path(json.loads(capsys.readouterr().out)["transcript"])
+    transcript.write_text("invalid JSON")
+    assert (
+        cli.main([str(video), "--output-dir", str(tmp_path / "retry"), "--json"]) == 1
+    )
+    assert json.loads(capsys.readouterr().out)["status"] == "error"
+    assert transcript.read_text() == "invalid JSON"
+    assert len(calls) == 1
+
+
+def test_cached_reuse_does_not_require_inference_backend(
+    pipeline: Pipeline,
+    monkeypatch: pytest.MonkeyPatch,
+    capsys: pytest.CaptureFixture[str],
+    tmp_path: Path,
+) -> None:
+    """Reuse CPU or MLX speech results without importing the original backend."""
+    video, calls = pipeline
+    assert cli.main([str(video), "--json"]) == 0
+    capsys.readouterr()
+    monkeypatch.setattr(
+        cli.importlib.util,
+        "find_spec",
+        lambda name: None if name == "mlx_whisper" else object(),
+    )
+    assert (
+        cli.main(
+            [
+                str(video),
+                "--device",
+                "mlx",
+                "--output-dir",
+                str(tmp_path / "mlx-retry"),
+                "--json",
+            ]
+        )
+        == 0
+    )
+    assert json.loads(capsys.readouterr().out)["status"] == "ok"
+    assert len(calls) == 1
+
+
+def test_cache_directory_preflight_fails_before_inference(
+    pipeline: Pipeline, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Validate cache publication as well as SRT publication before model work."""
+    video, calls = pipeline
+    obstacle = tmp_path / "cache-file"
+    obstacle.write_text("preserve me")
+    assert cli.main([str(video), "--cache-dir", str(obstacle / "child"), "--json"]) == 1
+    assert json.loads(capsys.readouterr().out)["status"] == "error"
+    assert obstacle.read_text() == "preserve me"
+    assert not calls
+
+
+def test_same_basename_movies_have_distinct_cache_namespaces(
+    pipeline: Pipeline, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Keep separate media sources from sharing a basename-derived transcript."""
+    video, calls = pipeline
+    assert cli.main([str(video), "--json"]) == 0
+    first = json.loads(capsys.readouterr().out)
+    other = tmp_path / "different-media" / video.name
+    other.parent.mkdir()
+    other.write_bytes(video.read_bytes())
+    assert cli.main([str(other), "--json"]) == 0
+    second = json.loads(capsys.readouterr().out)
+    assert first["transcript"] != second["transcript"]
+    assert len(calls) == 2
+
+
+def test_source_file_change_invalidates_automatic_cache(
+    pipeline: Pipeline, capsys: pytest.CaptureFixture[str], tmp_path: Path
+) -> None:
+    """Run recognition again when source bytes change at the same media path."""
+    video, calls = pipeline
+    assert cli.main([str(video), "--json"]) == 0
+    first = json.loads(capsys.readouterr().out)
+    video.write_bytes(b"a different source movie")
+    assert (
+        cli.main(
+            [str(video), "--output-dir", str(tmp_path / "changed-source"), "--json"]
+        )
+        == 0
+    )
+    second = json.loads(capsys.readouterr().out)
+    assert first["transcript"] != second["transcript"]
+    assert len(calls) == 2
+
+
+def test_conflicting_explicit_reuse_and_refresh_are_rejected(
+    pipeline: Pipeline, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Reject ambiguous recovery instructions before reading or generating speech."""
+    video, calls = pipeline
+    assert (
+        cli.main(
+            [
+                str(video),
+                "--reuse-transcript",
+                "checkpoint.json",
+                "--refresh-transcript",
+                "--json",
+            ]
+        )
+        == 1
+    )
+    assert "cannot be combined" in json.loads(capsys.readouterr().out)["error"]
+    assert not calls

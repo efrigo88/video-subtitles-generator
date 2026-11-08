@@ -2,7 +2,10 @@
 # ABOUTME: Gives inference, formatting, and CLI stages one source of defaults.
 """Shared configuration for media extraction and subtitle generation."""
 
+import errno
 from typing import Final
+
+from platformdirs import user_cache_path
 
 LANGUAGE_DESCRIPTION: Final[dict[str, str]] = {
     "en": "English",
@@ -28,6 +31,9 @@ DEFAULT_SOURCE_LANGUAGE: Final = "en"
 DEFAULT_SUBTITLE_LANGUAGES: Final = ("en", "es")
 DEFAULT_MODEL: Final = "medium"
 DEFAULT_DEVICE: Final = "cpu"
+DEFAULT_CACHE_DIRECTORY: Final = user_cache_path("video-subtitle-generator")
+CACHE_TRANSCRIPT_NAME: Final = "transcript.json"
+CACHE_REPORT_NAME: Final = "report.json"
 CONDITION_ON_PREVIOUS_TEXT: Final = False
 SUPPORTED_FORMATS: Final = (".mp4", ".mkv")
 SUPPORTED_MODELS: Final = (
@@ -62,6 +68,10 @@ TEMP_DIRECTORY_PREFIX: Final = "video-subtitles-"
 TEMP_AUDIO_NAME: Final = "audio.wav"
 PREFLIGHT_DIRECTORY_PREFIX: Final = ".subtitle-preflight-"
 ATOMIC_TEMP_PREFIX: Final = ".subtitle-output-"
+OUTPUT_FILE_PERMISSIONS: Final = 0o600
+HARD_LINK_UNSUPPORTED_ERRORS: Final = frozenset(
+    {errno.EOPNOTSUPP, errno.ENOTSUP, errno.ENOSYS, errno.EXDEV, errno.EPERM}
+)
 HALLUCINATION_SILENCE_SECONDS: Final = 2.0
 MAX_CUE_DURATION: Final = 6.0
 MAX_CUE_CHARACTERS: Final = 84
@@ -79,6 +89,4 @@ MILLISECONDS_PER_SECOND: Final = 1000
 SECONDS_PER_MINUTE: Final = 60
 MINUTES_PER_HOUR: Final = 60
 TRANSCRIPT_SCHEMA_VERSION: Final = 1
-TRANSCRIPT_SUFFIX: Final = ".transcript.json"
-REPORT_SUFFIX: Final = ".subtitles.json"
 TIMELINE_DESCRIPTION: Final = "container playback origin, preserved during extraction"

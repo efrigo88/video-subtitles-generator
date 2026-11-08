@@ -27,7 +27,7 @@ The default run writes both English and Spanish subtitles, transcribing the audi
 
 Add `--device mlx` on Apple Silicon after installing the `apple` extra. The default device is CPU. The source-language argument describes the spoken audio; Spanish output is produced by translating the aligned English captions.
 
-Outputs are `movie.en.srt`, `movie.es.srt`, a reusable `movie.en.transcript.json`, and `movie.subtitles.json`, beside the video. Existing output files require an explicit `--overwrite`. Model inference runs locally; the original video is left intact.
+The movie folder receives exactly two generated files: `movie.en.srt` and `movie.es.srt`. Reusable transcripts and quality reports stay in the application cache, outside the movie folder. JSON results identify the cache paths. Existing SRT files require an explicit `--overwrite`; matching cached transcription is reused. Model inference runs locally, and the original video is left intact.
 
 ## Development
 

@@ -22,11 +22,11 @@ Spanish translation uses the local [Helsinki-NLP/opus-mt-en-es](https://huggingf
 
 ## Outputs and unattended execution
 
-Output files use the video stem and language code. `--output-dir "/path/to/output"` changes their destination. An English/Spanish run writes two SRT tracks, the source-language transcript checkpoint, and a JSON report. The report lists absolute paths, selected stream, model, cue count, and quality warnings.
+SRT files use the video stem and language code. The movie folder receives exactly `movie.en.srt` and `movie.es.srt` by default. The default destination is always the resolved input video’s parent directory, wherever the movie lives. `--output-dir "/path/to/output"` explicitly changes the SRT destination. Transcription checkpoints and quality reports are stored separately in the platform’s application cache, under a source/settings fingerprint; `--cache-dir` can select another cache root outside the movie/output folder. The final JSON result lists the transcript/report cache paths, selected stream, model, cue count, and quality warnings.
 
 `--json` reserves stdout for one final JSON object; progress and model download messages use stderr. Exit status is zero on success and nonzero on failure. An error result includes any completed files, so a failed translation does not hide a completed English track or transcript.
 
-Output files are published individually and atomically. The run does not form a transaction across all tracks: if a later stage fails, earlier completed artifacts remain. Existing outputs are refused before expensive inference unless `--overwrite` is provided. No command waits for input. The extracted WAV lives in a unique temporary directory and is cleaned up after success or failure; an unrelated WAV next to the video is never used or deleted.
+SRT files and internal cache artifacts are published individually. Publication is atomic when the filesystem supports hard links or authorized replacement. On filesystems such as exFAT, exclusive creation preserves no-clobber behavior; handled write failures remove the partially written file. A process kill or power loss during that fallback can leave a partial file, so inspect an interrupted output before explicitly replacing it. The run does not form a transaction across all tracks: if a later stage fails, earlier completed artifacts remain. Existing outputs are refused before expensive inference unless `--overwrite` is provided. No command waits for input. The extracted WAV lives in a unique temporary directory and is cleaned up after success or failure; an unrelated WAV next to the video is never used or deleted.
 
 ## Models and devices
 
@@ -40,17 +40,18 @@ Whisper context across windows is disabled by default to reduce repetitive decod
 
 ## Reuse a transcription
 
-Transcription is saved before cue formatting and translation. If Spanish translation fails after an English run, retry only Spanish:
+Raw inference is saved in the application cache before cue formatting or translation. Matching cached transcription is reused automatically, so retrying a translation or writing subtitles into another directory does not run Whisper again. `--refresh-transcript` requests fresh inference when needed. Cached identity includes the resolved video path, size, modification time, spoken language, selected audio stream, model, and decoding settings.
+
+If Spanish translation fails after English output completed, retry only Spanish:
 
 ```bash
 uv run --no-sync python -m src.main "/path/to/movie.mp4" \
-  --source-language en --subtitle-languages es \
-  --reuse-transcript "/path/to/movie.en.transcript.json" --json
+  --source-language en --subtitle-languages es --json
 ```
 
-A transcript must match the resolved input path, file size, modification time, source language, and selected audio stream. Reuse rejects changed or unrelated input. Renaming or moving the movie invalidates this identity check; generate a fresh transcript rather than editing its provenance.
+An explicit `--reuse-transcript "/path/from-the-json-result/transcript.json"` also remains available. It must match the video’s source identity, language, stream, model, and previous-text decoding setting. Keep the original `--model` and `--condition-on-previous-text` options when retrying or explicitly reusing a transcript. Do not edit provenance to make an unrelated transcript appear valid. Renaming, moving, or modifying the input changes its identity.
 
-If the destination Spanish SRT or report already exists, choose another output directory or explicitly add `--overwrite`. Reuse does not invoke Whisper or extract audio. It can format/translate an existing transcript with CPU defaults regardless of the original inference device.
+Existing SRT files still require `--overwrite`, even when inference is cached. Internal fingerprinted cache files are maintained by the application; they are not additional movie-folder outputs. Keep the cache if you want to reuse compute. Model weight caches are managed separately by the inference libraries.
 
 ## Verify the result
 

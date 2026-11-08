@@ -9,6 +9,7 @@ dependencies = [
     "transformers>=4.48,<5",
     "sentencepiece>=0.2,<0.3",
     "sacremoses>=0.1,<0.2",
+    "platformdirs>=4,<5",
 ]
 
 [project.optional-dependencies]

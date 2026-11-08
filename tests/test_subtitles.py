@@ -2,13 +2,17 @@
 # ABOUTME: Reproduces visible timing failures with deterministic word-level examples.
 """Regression coverage for subtitle timing and cue validation."""
 
+import errno
 import json
 import math
+import os
 from pathlib import Path
 
 import pytest
 
+from src import subtitles
 from src.subtitles import (
+    atomic_write,
     build_cues,
     format_timestamp,
     validate_cues,
@@ -178,3 +182,124 @@ def test_reject_invalid_cues(cues: list[Cue]) -> None:
     """Reject empty text, overlapping timing, and nonpositive cue duration."""
     with pytest.raises(ValueError):
         validate_cues(cues)
+
+
+def test_unsupported_hard_links_use_exclusive_creation(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Publish UTF-8 content on filesystems without hard links, including short writes."""
+    destination = tmp_path / "movie.es.srt"
+    original_write = os.write
+
+    def unsupported_link(source: str, target: Path) -> None:
+        """Simulate exFAT rejecting a hard link."""
+        raise OSError(errno.ENOTSUP, "Hard links are unsupported")
+
+    def short_write(descriptor: int, data: memoryview) -> int:
+        """Exercise partial writes while preserving the complete byte stream."""
+        return original_write(descriptor, data[:3])
+
+    monkeypatch.setattr(subtitles.os, "link", unsupported_link)
+    monkeypatch.setattr(subtitles.os, "write", short_write)
+    atomic_write(destination, "Español: ¡Hola!\n")
+    assert destination.read_text() == "Español: ¡Hola!\n"
+    assert list(tmp_path.iterdir()) == [destination]
+
+
+@pytest.mark.parametrize("kind", ["file", "dangling-symlink", "concurrent-file"])
+def test_exclusive_fallback_never_replaces_existing_destinations(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, kind: str
+) -> None:
+    """Keep existing files and symlinks intact even if another writer wins the race."""
+    destination = tmp_path / "movie.en.srt"
+    if kind == "file":
+        destination.write_text("existing subtitles")
+    elif kind == "dangling-symlink":
+        destination.symlink_to(tmp_path / "missing-target")
+
+    def unsupported_link(source: str, target: Path) -> None:
+        """Reject links after optionally simulating a concurrent publication."""
+        if kind == "concurrent-file":
+            destination.write_text("existing subtitles")
+        raise OSError(errno.ENOTSUP, "Hard links are unsupported")
+
+    monkeypatch.setattr(subtitles.os, "link", unsupported_link)
+    with pytest.raises(FileExistsError):
+        atomic_write(destination, "replacement")
+    if kind == "dangling-symlink":
+        assert destination.is_symlink()
+        assert not destination.exists()
+    else:
+        assert destination.read_text() == "existing subtitles"
+    assert list(tmp_path.iterdir()) == [destination]
+
+
+@pytest.mark.parametrize("interrupted", [False, True])
+def test_exclusive_fallback_removes_its_partial_output_on_failure(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch, interrupted: bool
+) -> None:
+    """Clean up the owned destination after a write error or keyboard interrupt."""
+    destination = tmp_path / "movie.en.srt"
+    original_write = os.write
+    calls = 0
+
+    def unsupported_link(source: str, target: Path) -> None:
+        """Force publication through exclusive creation."""
+        raise OSError(errno.ENOTSUP, "Hard links are unsupported")
+
+    def failing_write(descriptor: int, data: memoryview) -> int:
+        """Write one fragment and fail while the destination is incomplete."""
+        nonlocal calls
+        calls += 1
+        if calls == 1:
+            return original_write(descriptor, data[:3])
+        if interrupted:
+            raise KeyboardInterrupt()
+        raise OSError(errno.EIO, "injected write failure")
+
+    monkeypatch.setattr(subtitles.os, "link", unsupported_link)
+    monkeypatch.setattr(subtitles.os, "write", failing_write)
+    with pytest.raises(KeyboardInterrupt if interrupted else OSError):
+        atomic_write(destination, "Incomplete subtitle output")
+    assert calls == 2
+    assert not list(tmp_path.iterdir())
+
+
+def test_exclusive_failure_cleanup_preserves_a_replacement_file(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Do not remove a different inode that replaced the owned output before cleanup."""
+    destination = tmp_path / "movie.en.srt"
+
+    def unsupported_link(source: str, target: Path) -> None:
+        """Force publication through exclusive creation."""
+        raise OSError(errno.ENOTSUP, "Hard links are unsupported")
+
+    def replaced_write(descriptor: int, data: memoryview) -> int:
+        """Replace the destination while its original descriptor remains open."""
+        destination.unlink()
+        destination.write_text("another writer's file")
+        raise OSError(errno.EIO, "injected failure after replacement")
+
+    monkeypatch.setattr(subtitles.os, "link", unsupported_link)
+    monkeypatch.setattr(subtitles.os, "write", replaced_write)
+    with pytest.raises(OSError):
+        atomic_write(destination, "original output")
+    assert destination.read_text() == "another writer's file"
+    assert list(tmp_path.iterdir()) == [destination]
+
+
+def test_link_permission_failure_is_not_treated_as_unsupported(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Preserve meaningful filesystem permission errors instead of hiding them."""
+    destination = tmp_path / "movie.en.srt"
+
+    def denied_link(source: str, target: Path) -> None:
+        """Simulate a directory access failure unrelated to link support."""
+        raise PermissionError(errno.EACCES, "access denied")
+
+    monkeypatch.setattr(subtitles.os, "link", denied_link)
+    with pytest.raises(PermissionError):
+        atomic_write(destination, "output")
+    assert not list(tmp_path.iterdir())

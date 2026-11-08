@@ -11,14 +11,15 @@ import tempfile
 from pathlib import Path
 from typing import NoReturn, Optional, cast
 
+from src.cache import transcript_cache_paths
 from src.constants import (
+    DEFAULT_CACHE_DIRECTORY,
     DEFAULT_DEVICE,
     DEFAULT_MODEL,
     DEFAULT_SOURCE_LANGUAGE,
     DEFAULT_SUBTITLE_LANGUAGES,
     LANGUAGE_DESCRIPTION,
     PREFLIGHT_DIRECTORY_PREFIX,
-    REPORT_SUFFIX,
     SRT_SUFFIX,
     SUPPORTED_DEVICES,
     SUPPORTED_FORMATS,
@@ -27,7 +28,6 @@ from src.constants import (
     TEMP_DIRECTORY_PREFIX,
     TIMELINE_DESCRIPTION,
     TRANSCRIPT_SCHEMA_VERSION,
-    TRANSCRIPT_SUFFIX,
     TRANSLATION_MODEL,
     TRANSLATION_PAIR,
 )
@@ -92,6 +92,11 @@ def parser() -> argparse.ArgumentParser:
     result.add_argument(
         "--output-dir", type=Path, help="Defaults to the video directory"
     )
+    result.add_argument(
+        "--cache-dir",
+        type=Path,
+        help="External application cache for transcripts and reports",
+    )
     result.add_argument("--model", default=DEFAULT_MODEL, choices=SUPPORTED_MODELS)
     result.add_argument("--device", choices=SUPPORTED_DEVICES, default=DEFAULT_DEVICE)
     result.add_argument(
@@ -102,6 +107,11 @@ def parser() -> argparse.ArgumentParser:
     )
     result.add_argument(
         "--reuse-transcript", type=Path, help="Reuse this video's saved transcription"
+    )
+    result.add_argument(
+        "--refresh-transcript",
+        action="store_true",
+        help="Run speech recognition again instead of reusing the matching cache",
     )
     result.add_argument(
         "--condition-on-previous-text",
@@ -169,9 +179,13 @@ def load_transcript(
             or checkpoint.get("source_file") != source_file
             or checkpoint.get("source_language") != source
             or checkpoint.get("audio_stream") != stream_index
+            or checkpoint.get("model") != args.model
+            or checkpoint.get("condition_on_previous_text")
+            != args.condition_on_previous_text
         ):
             raise ValueError(
-                "Transcript does not match this video, language, or audio stream."
+                "Transcript does not match this video, language, audio stream, "
+                "model, or decoding settings."
             )
         if not isinstance(checkpoint.get("segments"), list) or not all(
             isinstance(segment, dict) for segment in checkpoint["segments"]
@@ -264,12 +278,10 @@ def generate(args: argparse.Namespace, completed: list[str]) -> JsonDict:
         raise RuntimeError(
             "Spanish translation requires the standard dependencies: uv sync --locked"
         )
-    if (
-        not args.reuse_transcript
-        and args.device == "mlx"
-        and importlib.util.find_spec("mlx_whisper") is None
-    ):
-        raise RuntimeError("Apple acceleration requires: uv sync --extra apple")
+    if args.reuse_transcript and args.refresh_transcript:
+        raise ValueError(
+            "--reuse-transcript and --refresh-transcript cannot be combined."
+        )
     stream = select_audio_stream(probe, source, args.audio_stream)
     output_dir = (args.output_dir or video.parent).expanduser().resolve()
     if output_dir.exists() and not output_dir.is_dir():
@@ -278,15 +290,29 @@ def generate(args: argparse.Namespace, completed: list[str]) -> JsonDict:
         language: output_dir / f"{video.stem}.{language}{SRT_SUFFIX}"
         for language in languages
     }
-    transcript_path = output_dir / f"{video.stem}.{source}{TRANSCRIPT_SUFFIX}"
-    report_path = output_dir / f"{video.stem}{REPORT_SUFFIX}"
+    transcript_path, report_path = transcript_cache_paths(
+        args.cache_dir or DEFAULT_CACHE_DIRECTORY,
+        fingerprint(video),
+        source,
+        stream["index"],
+        args.model,
+        args.condition_on_previous_text,
+        output_dir,
+    )
     reuse = (
         args.reuse_transcript.expanduser().resolve() if args.reuse_transcript else None
     )
-    planned = list(outputs.values()) + [report_path]
-    if reuse != transcript_path:
-        planned.append(transcript_path)
-    for path in planned:
+    if reuse is None and not args.refresh_transcript and transcript_path.exists():
+        reuse = transcript_path
+    if (
+        reuse is None
+        and args.device == "mlx"
+        and importlib.util.find_spec("mlx_whisper") is None
+    ):
+        raise RuntimeError("Apple acceleration requires: uv sync --extra apple")
+    planned = list(outputs.values())
+    cached = [transcript_path, report_path]
+    for path in planned + cached:
         if path.is_dir():
             raise IsADirectoryError(f"Output path is a directory: {path}")
     if not args.overwrite:
@@ -295,17 +321,21 @@ def generate(args: argparse.Namespace, completed: list[str]) -> JsonDict:
                 raise FileExistsError(
                     f"Output already exists: {path}. Use --overwrite to replace it."
                 )
-    output_dir.mkdir(parents=True, exist_ok=True)
     # Validate the actual publication operation before paying for model inference.
-    with tempfile.TemporaryDirectory(
-        prefix=PREFLIGHT_DIRECTORY_PREFIX, dir=output_dir
-    ) as temporary:
-        for path in planned:
-            atomic_write(Path(temporary) / path.name, "", args.overwrite)
+    for directory, paths, overwrite in [
+        (output_dir, planned, args.overwrite),
+        (transcript_path.parent, cached, True),
+    ]:
+        directory.mkdir(parents=True, exist_ok=True)
+        with tempfile.TemporaryDirectory(
+            prefix=PREFLIGHT_DIRECTORY_PREFIX, dir=directory
+        ) as temporary:
+            for path in paths:
+                atomic_write(Path(temporary) / path.name, "", overwrite)
     checkpoint = load_transcript(args, video, source, stream["index"], reuse)
     # Raw inference survives subsequent formatting or translation failures.
     if reuse != transcript_path:
-        write_json(transcript_path, checkpoint, args.overwrite)
+        write_json(transcript_path, checkpoint, overwrite=True)
     completed.append(str(transcript_path))
     cues, warnings = build_cues(checkpoint["segments"])
     duration = media_playback_duration(video, probe)
@@ -342,7 +372,7 @@ def generate(args: argparse.Namespace, completed: list[str]) -> JsonDict:
         "warnings": warnings,
         "translation_model": TRANSLATION_MODEL if needs_translation else None,
     }
-    write_json(report_path, report, args.overwrite)
+    write_json(report_path, report, overwrite=True)
     return report
 
 
